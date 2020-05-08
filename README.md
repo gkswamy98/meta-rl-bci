@@ -1,2 +1,2 @@
 # meta-rl-bci
-what might become my thesis?
+meta learning + maxent deeprl for shared autonomy from eeg signals
