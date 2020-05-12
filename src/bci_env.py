@@ -1,6 +1,7 @@
 import gym
 from gym import spaces
 from .data_utils import format_datasets
+import numpy as np
 
 def inf_loop_gen(arr):
     i = 0

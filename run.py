@@ -6,6 +6,7 @@ from src.bci_env import BCIEnv
 from src.sac_bci import SACBCI
 from src.bci_trainer import BCITrainer
 from src.streamer import Streamer
+from src.cursor_ctrl import CursorCtrl
 
 PROMPT = """What would you like to do?
 1) Initialize via meta-learning.
@@ -21,7 +22,7 @@ def init_policy():
     parser = BCITrainer.get_argument()
     parser = SACBCI.get_argument(parser)
     parser.set_defaults(test_interval=1000)
-    parser.set_defaults(max_steps=100000)
+    parser.set_defaults(max_steps=20100)
     parser.set_defaults(gpu=-1)
     parser.set_defaults(n_warmup=int(2e4))
     parser.set_defaults(batch_size=64)
@@ -40,13 +41,13 @@ def init_policy():
             auto_alpha=args.auto_alpha,
             update_interval=4,
             gpu=args.gpu)
-    return policy
+    return policy, parser
 
 
 def main():
-    policy = init_policy()
+    policy, parser = init_policy()
+    args = parser.parse_args("")
     reward_dec = EEGNet()
-    env = None
     while True:
         task = input(PROMPT)
         if task.isdigit():
@@ -76,17 +77,31 @@ def main():
                 policy.qf1_target.load_weights('./models/vf_meta_init.h5')
                 print("Loaded meta-learned weights.")
         elif task == 2:
+            print("Collecting data.")
             streamer = Streamer(101)
-            env = None # Instead of BCI Env, create GameEnv (no need for policy)
-            # Afterwards, generate not-live bci_env and train for some number of timesteps
-            # the idea of a live bci env was just for conveniece, should remove.
-            # TODO
+            cursor_ctrl = CursorCtrl()
+            cursor_ctrl.run_game(120)
             streamer.save_data() # for future meta-learning
             streamer.close()
+            cursor_ctrl.close()
+            print("Training.")
+            env = BCIEnv(data_idx=101, task="ctrl")
+            test_env = BCIEnv(data_idx=101, task="ctrl")
+            trainer = BCITrainer(policy, env, args, test_env=test_env)
+            trainer()
+            erp_dataset = format_datasets(data_idxs=[101], task="erp")[0]
+            reward_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
+            reward_dec.fit(erp_dataset["x_train"],
+                           erp_dataset["y_train"],
+                           batch_size = 16,
+                           epochs = 300, 
+                           verbose = 2,
+                           validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
+            print("Finished training.")
         elif task == 3:
-            pass
+            # TODO
         elif task == 4:
-            pass
+            # TODO
         elif task == 5:
             exit()
         else:
