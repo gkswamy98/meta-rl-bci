@@ -1,5 +1,6 @@
+import gym
 from gym import spaces
-from data_utils import format_datasets
+from .data_utils import format_datasets
 
 def inf_loop_gen(arr):
     i = 0
@@ -9,10 +10,11 @@ def inf_loop_gen(arr):
 
 class BCIEnv(gym.Env):
     def __init__(self,
-                 state_dim=(kernels, chans, samples),
+                 state_dim=(1, 16, 125),
                  num_actions=2,
                  is_live=False,
                  data_idx=7,
+                 streamer=None,
                  task="erp",
                  is_testing=False):
         super(BCIEnv, self).__init__()
@@ -21,7 +23,7 @@ class BCIEnv(gym.Env):
         self.ep_len = 1
         self.t = 0
         if is_live:
-            pass # TODO: read data via brainflow
+            self.streamer = streamer
         else:
             dataset = format_datasets([data_idx], task=task)[0]
             x_train, y_train, x_test, y_test = dataset["x_train"], dataset["y_train"], dataset["x_test"], dataset["y_test"]

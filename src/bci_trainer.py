@@ -4,6 +4,7 @@ import logging
 import argparse
 
 import numpy as np
+import tensorflow as tf
 from gym.spaces.box import Box
 from gym.spaces.discrete import Discrete
 from gym.spaces.dict import Dict
@@ -64,7 +65,7 @@ def get_replay_buffer(policy, env, use_prioritized_rb=False,
     # N-step
     if use_nstep_rb:
         kwargs["Nstep"] = {"size": n_step,
-                           "gamma": policy.discount,gg
+                           "gamma": policy.discount,
                            "rew": "rew",
                            "next": "next_obs"}
         return ReplayBuffer(**kwargs)

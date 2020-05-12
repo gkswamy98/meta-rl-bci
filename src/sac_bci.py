@@ -4,7 +4,7 @@ from tf2rl.algos.sac_discrete import SACDiscrete
 from tf2rl.algos.sac_discrete import SAC
 from tf2rl.misc.target_update_ops import update_target_variables
 from tf2rl.misc.huber_loss import huber_loss
-from eegnet import EEGNet
+from .eegnet import EEGNet
 
 
 class SACBCI(SACDiscrete):
@@ -31,7 +31,7 @@ class SACBCI(SACDiscrete):
         # The output of actor is categorical distribution
         self.actor = self.actor_fn()
         self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
-        # TODO: add in reptile pre-training -> need to have this interface w/ stored data
+
 
     def _setup_critic_q(self, state_shape, action_dim, critic_units, lr):
         self.qf1 = self.critic_fn()

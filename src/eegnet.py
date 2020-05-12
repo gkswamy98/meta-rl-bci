@@ -54,11 +54,10 @@ def EEGNet(nb_classes = 2, Chans = 16, Samples = 125,
     
     layers.append(dropoutType(dropoutRate))
     layers.append(Flatten())
+    layers.append(Dense(nb_classes, kernel_constraint = max_norm(norm_rate)))
     if softmax:
-        layers.append(Dense(nb_classes, kernel_constraint = max_norm(norm_rate)))
         layers.append(Activation('softmax'))
     else:
-        layers.append(Dense(512))
         layers.append(Activation('relu'))
         layers.append(Dense(nb_classes))
 
