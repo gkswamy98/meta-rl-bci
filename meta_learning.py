@@ -1,7 +1,7 @@
 import numpy as np
 
 def reptile(model, datasets, total_epochs = 750, batch_sz = 16, inner_steps = 20, epsilon = 1):
-	for epoch in range(0, total_epochs, inner_epochs):
+	for epoch in range(total_epochs):
     	print("META EPOCH {0}".format(epoch + 1))
     	old_weights = model.get_weights()
     	task = np.random.randint(num_tasks)
