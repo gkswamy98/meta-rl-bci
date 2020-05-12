@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import time
 from src.data_utils import load_data, format_datasets
 from src.meta_learning import reptile
 from src.eegnet import EEGNet
@@ -12,8 +14,9 @@ PROMPT = """What would you like to do?
 1) Initialize via meta-learning.
 2) Train via imitating an optimal controller.
 3) Fine-tune via SAC.
-4) Use trained action decoder.
-5) Quit.
+4) Save trained components.
+5) Use trained action decoder.
+6) Quit.
 """
 
 RETRAIN_META = False
@@ -78,15 +81,15 @@ def main():
                 print("Loaded meta-learned weights.")
         elif task == 2:
             print("Collecting data.")
-            streamer = Streamer(101)
-            cursor_ctrl = CursorCtrl()
+            streamer = Streamer(data_idx=101)
+            cursor_ctrl = CursorCtrl(data_idx=101)
             cursor_ctrl.run_game(120)
-            streamer.save_data() # for future meta-learning
+            streamer.save_data()
             streamer.close()
             cursor_ctrl.close()
             print("Training.")
             env = BCIEnv(data_idx=101, task="ctrl")
-            test_env = BCIEnv(data_idx=101, task="ctrl")
+            test_env = BCIEnv(data_idx=101, task="ctrl", is_testing=True)
             trainer = BCITrainer(policy, env, args, test_env=test_env)
             trainer()
             erp_dataset = format_datasets(data_idxs=[101], task="erp")[0]
@@ -99,10 +102,57 @@ def main():
                            validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
             print("Finished training.")
         elif task == 3:
-            # TODO
+            streamer = Streamer(data_idx=102)
+            cursor_ctrl = CursorCtrl(data_idx=102)
+            env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
+            for ft_epoch in range(3):
+                print("On Round {0} / 3".format(ft_epoch))
+                start_time = time.time()
+                epoch_obs = []
+                epoch_act = []
+                epoch_rew = []
+                obs = env.reset()
+                while time.time() - start_time < 300.:
+                    epoch_obs.append(obs)
+                    action = policy.get_action(obs)
+                    obs, reward, _, _, = env.step(action)
+                    epoch_act.append(action)
+                    epoch_rew.append(reward)
+                    env.render()
+                epoch_obs.append(obs)
+                print("Training ...")
+                parser.set_defaults(max_steps=1000)
+                args = parser.parse_args("")
+                rep_buff = {'action': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
+                trainer = BCITrainer(policy, test_env, args, test_env=test_env)
+                trainer.rep_buff = rep_buff
+                trainer()
+            print("Finished fine-tuning.")
+            streamer.save_data()
+            streamer.close()
+            cursor_ctrl.close()
         elif task == 4:
-            # TODO
+            name = str(int(time.time()))
+            os.mkdir('./models/{0}'.format(name))
+            reward_dec.save_weights('./models/{0}/reward_dec.h5'.format(name))
+            policy.actor.save_weights('./models/{0}/policy_actor.h5'.format(name))
+            policy.qf1.save_weights('./models/{0}/policy_qf1.h5'.format(name))
+            policy.qf1_target.save_weights('./models/{0}/policy_qf1_target.h5'.format(name))
+            policy.qf2.save_weights('./models/{0}/policy_qf2.h5'.format(name))
+            policy.qf2_target.save_weights('./models/{0}/policy_qf2_target.h5'.format(name))
+            print('Saved weights with prefix {0}'.format(name))
         elif task == 5:
+            print("Starting up CursorCtrl for 5 minutes.")
+            streamer = Streamer(data_idx=103)
+            cursor_ctrl = CursorCtrl(data_idx=103)
+            env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
+            start_time = time.time()
+            obs = env.reset()
+            while time.time() - start_time < 300.:
+                action = policy.get_action(obs)
+                obs, _, _, _,= env.step(action)
+                env.render()
+        elif task == 6:
             exit()
         else:
             print("Sorry, command not understood.")

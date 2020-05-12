@@ -28,6 +28,15 @@ class CursorCtrl:
         pygame.draw.circle(self.screen, GREEN, self.goal_pos, CIRCLE_RADIUS, 0)
         pygame.display.update()
         pygame.time.delay(int(1000 * self.delay))
+    def execute_ctrl(self, ctrl):
+        if ctrl == LEFT:
+            self.cursor_pos[0] -= 20 
+        if ctrl == RIGHT:
+            self.cursor_pos[0] += 20 
+        self.cursor_pos[0] = min(max(self.cursor_pos[0], 0), SCREEN[0])
+        self.cursor_pos[1] = min(max(self.cursor_pos[1], 0), SCREEN[1])
+        if np.sqrt((self.cursor_pos[0] - self.goal_pos[0]) ** 2 + (self.cursor_pos[1] - self.goal_pos[1]) ** 2) < 30.:
+            self.goal_pos = [np.random.randint(SCREEN[0]), 300]
     def run_game(self, game_len=1800):
         start_time = time.time()
         while time.time() - start_time < game_len:#1200: # 20 minutes
@@ -65,14 +74,7 @@ class CursorCtrl:
                     ctrl = robot_ctrl
                     self.incorrect_times.append(str(time.time()))
                     np.save("./data/incorrect_times_{0}.npy".format(self.data_idx), self.incorrect_times)
-            if ctrl == LEFT:
-                self.cursor_pos[0] -= 20 
-            if ctrl == RIGHT:
-                self.cursor_pos[0] += 20 
-            self.cursor_pos[0] = min(max(self.cursor_pos[0], 0), SCREEN[0])
-            self.cursor_pos[1] = min(max(self.cursor_pos[1], 0), SCREEN[1])
-            if np.sqrt((self.cursor_pos[0] - self.goal_pos[0]) ** 2 + (self.cursor_pos[1] - self.goal_pos[1]) ** 2) < 30.:
-                self.goal_pos = [np.random.randint(SCREEN[0]), 300]
+            self.execute_ctrl(ctrl)
             self.render()
     def reset(self):
         self.cursor_pos = [int(SCREEN[0] / 2), int(SCREEN[1] / 2)]
