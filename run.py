@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import time
+import threading
 from src.data_utils import load_data, format_datasets
 from src.meta_learning import reptile
 from src.eegnet import EEGNet
@@ -25,9 +26,9 @@ def init_policy():
     parser = BCITrainer.get_argument()
     parser = SACBCI.get_argument(parser)
     parser.set_defaults(test_interval=1000)
-    parser.set_defaults(max_steps=20100)
+    parser.set_defaults(max_steps=5100)
     parser.set_defaults(gpu=-1)
-    parser.set_defaults(n_warmup=int(2e4))
+    parser.set_defaults(n_warmup=int(5e3))
     parser.set_defaults(batch_size=64)
     parser.set_defaults(memory_capacity=int(1e4))
     parser.set_defaults(target_update_interval=8000)
@@ -83,7 +84,7 @@ def main():
             print("Collecting data.")
             streamer = Streamer(data_idx=101)
             cursor_ctrl = CursorCtrl(data_idx=101)
-            cursor_ctrl.run_game(120)
+            cursor_ctrl.run_game(1800)
             streamer.save_data()
             streamer.close()
             cursor_ctrl.close()
@@ -106,6 +107,8 @@ def main():
             cursor_ctrl = CursorCtrl(data_idx=102)
             env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
             for ft_epoch in range(3):
+                thread = threading.Thread(target=cursor_ctrl.render_for, args=(300,))
+                thread.start()
                 print("On Round {0} / 3".format(ft_epoch))
                 start_time = time.time()
                 epoch_obs = []
@@ -124,8 +127,8 @@ def main():
                 parser.set_defaults(max_steps=1000)
                 args = parser.parse_args("")
                 rep_buff = {'action': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
-                trainer = BCITrainer(policy, test_env, args, test_env=test_env)
-                trainer.rep_buff = rep_buff
+                trainer = BCITrainer(policy, env, args, test_env=test_env)
+                trainer.rep_buff = rep_buff # pulls data from here instead
                 trainer()
             print("Finished fine-tuning.")
             streamer.save_data()
@@ -142,16 +145,18 @@ def main():
             policy.qf2_target.save_weights('./models/{0}/policy_qf2_target.h5'.format(name))
             print('Saved weights with prefix {0}'.format(name))
         elif task == 5:
-            print("Starting up CursorCtrl for 5 minutes.")
+            print("Starting up CursorCtrl for 1 minute.")
             streamer = Streamer(data_idx=103)
             cursor_ctrl = CursorCtrl(data_idx=103)
             env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
+            thread = threading.Thread(target=cursor_ctrl.render_for, args=(60,))
+            thread.start()
             start_time = time.time()
             obs = env.reset()
-            while time.time() - start_time < 300.:
+            while time.time() - start_time < 60.:
                 action = policy.get_action(obs)
                 obs, _, _, _,= env.step(action)
-                env.render()
+                time.sleep(2.5)
         elif task == 6:
             exit()
         else:

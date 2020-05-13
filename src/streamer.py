@@ -14,6 +14,7 @@ class Streamer:
         self.board_id = 2
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         sfreq = BoardShim.get_sampling_rate(self.board_id)
+        self.freq = sfreq
         ch_types = ['eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg']
         ch_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
         self.info = mne.create_info (ch_names = ch_names, sfreq = sfreq, ch_types = ch_types)
@@ -21,14 +22,14 @@ class Streamer:
         self.board.prepare_session()
         self.board.start_stream()
     def get_data(self, num_samples, freq_ranges):
-        data = self.board.get_board_data()
+        data = self.board.get_current_board_data(1000) # extra time for proper filtering
         eeg_data = data[self.eeg_channels, :] 
         eeg_data = eeg_data / 1000000
         samples = []
         for (low, high) in freq_ranges:
             raw = mne.io.RawArray(eeg_data, self.info)
             raw.filter(low, high, fir_design='firwin')
-            samples.append(np.swapaxes(np.transpose(raw.get_data()), 1, 2))
+            samples.append(np.expand_dims(raw.get_data()[:, -num_samples:], 0))
         return samples
     def save_data(self):
         data = self.board.get_board_data()

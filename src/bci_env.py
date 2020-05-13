@@ -30,6 +30,7 @@ class BCIEnv(gym.Env):
         self.t = 0
         self.delay = delay
         self.freq = freq
+        self.is_live = is_live
         if is_live:
             self.streamer = streamer
             self.reward_dec = reward_dec
@@ -55,10 +56,9 @@ class BCIEnv(gym.Env):
             else:
                 reward = 0.
         else:
-            self.cursor_ctrl.execute_ctrl(action)
-            time.sleep(self.delay)
-            data = self.steamer.get_data(int(self.delay * self.freq), [(0.5, 40.), (1., 60.)])
-            is_error = np.argmax(self.reward_dec.predict(data[0][:, :, :self.freq]), axis=-1)
+            self.cursor_ctrl.action_buffer.append(action)
+            data = self.streamer.get_data(int(self.delay * self.freq), [(0.5, 40.), (1., 60.)])
+            is_error = np.argmax(self.reward_dec.predict(np.expand_dims(data[0][:, :, :self.freq], axis=0)), axis=-1)
             reward = np.abs(1 - is_error) / self.ep_len
             obs = data[1][:, :, int(1.4 * self.freq): int(2.4 * self.freq)]
         if self.t % self.ep_len == 0:
@@ -75,12 +75,13 @@ class BCIEnv(gym.Env):
             self.opt_act_gen = inf_loop_gen(self.y_train)
             return next(self.state_gen)
         else:
-            data = self.steamer.get_data(int(self.delay * self.freq), [(1., 60.)])
-            return data[0][:, :, int(1.4 * self.freq): int(2.4 * self.freq)]
+            time.sleep(self.delay + 1.)
+            data = self.streamer.get_data(int(self.delay * self.freq), [(1., 60.)])
+            obs = data[0][:, :, int(1.4 * self.freq): int(2.4 * self.freq)]
+            return obs
 
     def render(self, mode='human'):
-        if self.is_live:
-            self.cursor_ctrl.render()
+        pass
     
     def close(self):
         pass

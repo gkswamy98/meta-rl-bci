@@ -21,13 +21,13 @@ class CursorCtrl:
         self.screen = pygame.display.set_mode(SCREEN)
         self.delay = delay
         pygame.display.set_caption('Cursor CTRL')
+        self.action_buffer = []
         self.reset()
     def render(self):
         self.screen.fill(BLACK)
         pygame.draw.circle(self.screen, WHITE, self.cursor_pos, CIRCLE_RADIUS, 0)
         pygame.draw.circle(self.screen, GREEN, self.goal_pos, CIRCLE_RADIUS, 0)
         pygame.display.update()
-        pygame.time.delay(int(1000 * self.delay))
     def execute_ctrl(self, ctrl):
         if ctrl == LEFT:
             self.cursor_pos[0] -= 20 
@@ -76,6 +76,23 @@ class CursorCtrl:
                     np.save("./data/incorrect_times_{0}.npy".format(self.data_idx), self.incorrect_times)
             self.execute_ctrl(ctrl)
             self.render()
+            self.delay_for(self.delay)
+    def render_for(self, game_len=1800):
+        start_time = time.time()
+        while time.time() - start_time < game_len:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+            while len(self.action_buffer) == 0:
+                time.sleep(1e-3)
+            action = self.action_buffer[0]
+            action_buffer = self.action_buffer[1:]
+            self.execute_ctrl(action)
+            self.render()
+            self.delay_for(self.delay)
+    def delay_for(self, t):
+        pygame.time.delay(int(t * 1000))
     def reset(self):
         self.cursor_pos = [int(SCREEN[0] / 2), int(SCREEN[1] / 2)]
         self.goal_pos = [np.random.randint(SCREEN[0]), int(SCREEN[1] / 2)]

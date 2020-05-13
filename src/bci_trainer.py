@@ -135,7 +135,7 @@ class BCITrainer(Trainer):
                                   next_obs=next_obs, rew=reward, done=done_flag)
                 obs = next_obs
                 if done or episode_steps == self._episode_max_steps:
-                    obs = self._env.reset()
+                    # obs = self._env.reset() # EPS are length 1
 
                     n_episode += 1
                     fps = episode_steps / (time.perf_counter() - episode_start_time)
