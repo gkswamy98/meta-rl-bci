@@ -1,6 +1,5 @@
 import gym
 from gym import spaces
-from .data_utils import format_datasets
 import numpy as np
 import time
 
@@ -22,7 +21,8 @@ class BCIEnv(gym.Env):
                  reward_dec=None,
                  cursor_ctrl=None,
                  task="erp",
-                 is_testing=False):
+                 is_testing=False,
+                 dataset=None):
         super(BCIEnv, self).__init__()
         self.action_space = spaces.Discrete(num_actions)
         self.observation_space = spaces.Box(low=-10, high=10, shape=state_dim, dtype=np.float64)
@@ -36,16 +36,17 @@ class BCIEnv(gym.Env):
             self.reward_dec = reward_dec
             self.cursor_ctrl = cursor_ctrl
         else:
-            dataset = format_datasets([data_idx], task=task)[0]
+            if dataset is None:
+                dataset = format_datasets([data_idx], task=task)[0]
             x_train, y_train, x_test, y_test = dataset["x_train"], dataset["y_train"], dataset["x_test"], dataset["y_test"]
             if is_testing:
-                self.x_train = x_train
-                self.y_train = y_train
-            else:
                 self.x_train = x_test
                 self.y_train = y_test
-                self.state_gen = inf_loop_gen(self.x_train)
-                self.opt_act_gen = inf_loop_gen(self.y_train)
+            else:
+                self.x_train = x_train
+                self.y_train = y_train
+            self.state_gen = inf_loop_gen(self.x_train)
+            self.opt_act_gen = inf_loop_gen(self.y_train)
             
     def step(self, action):
         if not self.is_live:

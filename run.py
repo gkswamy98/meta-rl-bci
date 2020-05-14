@@ -26,9 +26,9 @@ def init_policy():
     parser = BCITrainer.get_argument()
     parser = SACBCI.get_argument(parser)
     parser.set_defaults(test_interval=1000)
-    parser.set_defaults(max_steps=5100)
+    parser.set_defaults(max_steps=4000) # for training on 30 mins of data
     parser.set_defaults(gpu=-1)
-    parser.set_defaults(n_warmup=int(5e3))
+    parser.set_defaults(n_warmup=int(0))
     parser.set_defaults(batch_size=64)
     parser.set_defaults(memory_capacity=int(1e4))
     parser.set_defaults(target_update_interval=8000)
@@ -37,7 +37,7 @@ def init_policy():
             state_shape=(1, 16, 125),
             action_dim=2,
             discount=1.0,
-            lr=3e-4,
+            lr=1e-3,
             batch_size=64,
             memory_capacity=args.memory_capacity,
             n_warmup=args.n_warmup,
@@ -75,32 +75,53 @@ def main():
                     dataset["y_test"] = np.abs(dataset["y_test"] - 1)
                 reptile(value_dec, erp_datasets, save_weights=True, task="vf")
             else:
+                ctrl_dec = EEGNet()
+                value_dec = EEGNet(softmax=False)
                 reward_dec.load_weights('./models/erp_meta_init.h5')
-                policy.actor.load_weights('./models/ctrl_meta_init.h5')
-                policy.qf1.load_weights('./models/vf_meta_init.h5')
-                policy.qf1_target.load_weights('./models/vf_meta_init.h5')
+                ctrl_dec.load_weights('./models/ctrl_meta_init.h5')
+                value_dec.load_weights('./models/vf_meta_init.h5')
                 print("Loaded meta-learned weights.")
         elif task == 2:
-            print("Collecting data.")
-            streamer = Streamer(data_idx=101)
-            cursor_ctrl = CursorCtrl(data_idx=101)
+            data_idx = 101
+            print("Collecting data at index {0}.".format(data_idx))
+            streamer = Streamer(data_idx=data_idx)
+            cursor_ctrl = CursorCtrl(data_idx=data_idx)
             cursor_ctrl.run_game(1800)
             streamer.save_data()
             streamer.close()
             cursor_ctrl.close()
             print("Training.")
-            env = BCIEnv(data_idx=101, task="ctrl")
-            test_env = BCIEnv(data_idx=101, task="ctrl", is_testing=True)
-            trainer = BCITrainer(policy, env, args, test_env=test_env)
-            trainer()
-            erp_dataset = format_datasets(data_idxs=[101], task="erp")[0]
             reward_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
+            ctrl_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
+            value_dec.compile(loss='mse', optimizer='adam', metrics = ['mse'])
+            erp_dataset = format_datasets(data_idxs=[data_idx], task="erp")[0]
+            ctrl_dataset = format_datasets(data_idxs=[data_idx], task="ctrl")[0]
             reward_dec.fit(erp_dataset["x_train"],
                            erp_dataset["y_train"],
                            batch_size = 16,
                            epochs = 300, 
                            verbose = 2,
                            validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
+            ctrl_dec.fit(ctrl_dataset["x_train"],
+                         ctrl_dataset["y_train"],
+                         batch_size = 16,
+                         epochs = 300, 
+                         verbose = 2,
+                         validation_data=(ctrl_dataset["x_test"], ctrl_dataset["y_test"]))
+            erp_dataset["y_train"] = np.abs(erp_dataset["y_train"] - 1)
+            erp_dataset["y_test"] = np.abs(erp_dataset["y_test"] - 1)
+            value_dec.fit(erp_dataset["x_train"],
+                          erp_dataset["y_train"],
+                          batch_size = 16,
+                          epochs = 300, 
+                          verbose = 2,
+                          validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
+            reward_dec.save_weights('./models/erp_d{0}.h5'.format(data_idx))
+            ctrl_dec.save_weights('./models/ctrl_d{0}.h5'.format(data_idx))
+            value_dec.save_weights('./models/vf_d{0}.h5'.format(data_idx))
+            policy.actor.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
+            policy.qf1.load_weights('./models/vf_d{0}.h5'.format(data_idx))
+            policy.qf1_target.load_weights('./models/vf_d{0}.h5'.format(data_idx))
             print("Finished training.")
         elif task == 3:
             streamer = Streamer(data_idx=102)
@@ -124,7 +145,7 @@ def main():
                     env.render()
                 epoch_obs.append(obs)
                 print("Training ...")
-                parser.set_defaults(max_steps=1000)
+                parser.set_defaults(max_steps=2000) # might need to tune ...
                 args = parser.parse_args("")
                 rep_buff = {'action': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
                 trainer = BCITrainer(policy, env, args, test_env=test_env)

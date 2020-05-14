@@ -1,224 +1,145 @@
-import os
-import time
-import logging
-import argparse
-
-import numpy as np
 import tensorflow as tf
-from gym.spaces.box import Box
-from gym.spaces.discrete import Discrete
-from gym.spaces.dict import Dict
+import numpy as np
+from tf2rl.algos.sac_discrete import SACDiscrete
+from tf2rl.algos.sac_discrete import SAC
+from tf2rl.misc.target_update_ops import update_target_variables
+from tf2rl.misc.huber_loss import huber_loss
 
-from cpprb import ReplayBuffer, PrioritizedReplayBuffer
+class SACBCI(SACDiscrete):
+    def __init__(
+            self,
+            state_shape,
+            action_dim,
+            *args,
+            actor_fn=None,
+            critic_fn=None,
+            target_update_interval=None,
+            **kwargs):
+        kwargs["name"] = "SAC_discrete"
+        self.actor_fn = EEGNet
+        self.critic_fn = lambda: EEGNet(softmax=False)
+        self.target_hard_update = target_update_interval is not None
+        self.target_update_interval = target_update_interval
+        self.n_training = tf.Variable(0, dtype=tf.int32)
+        SAC.__init__(self=self, state_shape=state_shape, action_dim=action_dim, *args, **kwargs)
+        if self.auto_alpha:
+            self.target_alpha = -np.log((1.0 / action_dim)) * 0.98
 
-from tf2rl.algos.policy_base import OffPolicyAgent
-from tf2rl.envs.utils import is_discrete
-from tf2rl.misc.get_replay_buffer import get_space_size, get_default_rb_dict
-from tf2rl.experiments.utils import save_path, frames_to_gif
-from tf2rl.misc.prepare_output_dir import prepare_output_dir
-from tf2rl.misc.initialize_logger import initialize_logger
-from tf2rl.envs.normalizer import EmpiricalNormalizer
-from tf2rl.experiments.trainer import Trainer
-
-
-if tf.config.experimental.list_physical_devices('GPU'):
-    for cur_device in tf.config.experimental.list_physical_devices("GPU"):
-        print(cur_device)
-        tf.config.experimental.set_memory_growth(cur_device, enable=True)
-
-
-def get_replay_buffer(policy, env, use_prioritized_rb=False,
-                      use_nstep_rb=False, n_step=1, size=None):
-    if policy is None or env is None:
-        return None
-
-    obs_shape = get_space_size(env.observation_space)
-    kwargs = get_default_rb_dict(policy.memory_capacity, env)
-
-    if size is not None:
-        kwargs["size"] = size
-
-    # on-policy policy
-    if not issubclass(type(policy), OffPolicyAgent):
-        kwargs["size"] = policy.horizon
-        kwargs["env_dict"].pop("next_obs")
-        kwargs["env_dict"].pop("rew")
-        kwargs["env_dict"]["logp"] = {}
-        kwargs["env_dict"]["ret"] = {}
-        kwargs["env_dict"]["adv"] = {}
-        if is_discrete(env.action_space):
-            kwargs["env_dict"]["act"]["dtype"] = np.int32
-        return ReplayBuffer(**kwargs)
-
-    # N-step prioritized
-    if use_prioritized_rb and use_nstep_rb:
-        kwargs["Nstep"] = {"size": n_step,
-                           "gamma": policy.discount,
-                           "rew": "rew",
-                           "next": "next_obs"}
-        return PrioritizedReplayBuffer(**kwargs)
-
-    # prioritized
-    if use_prioritized_rb:
-        return PrioritizedReplayBuffer(**kwargs)
-
-    # N-step
-    if use_nstep_rb:
-        kwargs["Nstep"] = {"size": n_step,
-                           "gamma": policy.discount,
-                           "rew": "rew",
-                           "next": "next_obs"}
-        return ReplayBuffer(**kwargs)
-
-    return ReplayBuffer(**kwargs)
+    def _setup_actor(self, state_shape, action_dim, actor_units, lr, max_action=1.):
+        # The output of actor is categorical distribution
+        self.actor = self.actor_fn()
+        self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
 
 
-class BCITrainer(Trainer):
-    def __call__(self):
-        total_steps = 0
-        tf.summary.experimental.set_step(total_steps)
-        episode_steps = 0
-        episode_return = 0
-        episode_start_time = time.perf_counter()
-        n_episode = 0
+    def _setup_critic_q(self, state_shape, action_dim, critic_units, lr):
+        self.qf1 = self.critic_fn()
+        self.qf2 = self.critic_fn()
+        self.qf1_target = self.critic_fn()
+        self.qf2_target = self.critic_fn()
+        update_target_variables(self.qf1_target.weights,
+                                self.qf1.weights, tau=1.)
+        update_target_variables(self.qf2_target.weights,
+                                self.qf2.weights, tau=1.)
+        self.qf1_optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        self.qf2_optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        
+        
+    def get_action(self, state, test=False):
+        assert isinstance(state, np.ndarray)
+        is_single_state = len(state.shape) == self.state_ndim
+        
+        state = np.expand_dims(state, axis=0).astype(
+            np.float32) if is_single_state else state
+        if len(state.shape) == 3:
+            print(state.shape)
+        probs = self._get_action_body(tf.constant(state), test)
+    
+        if test:
+            return np.argmax(probs.numpy(), axis=-1) 
+        else:
+            print(probs)
+            return tf.random.categorical(tf.math.log(tf.expand_dims(probs, 0)), 1)
 
-        replay_buffer = get_replay_buffer(
-            self._policy, self._env, self._use_prioritized_rb,
-            self._use_nstep_rb, self._n_step)
+        
+    def _train_body(self, states, actions, next_states, rewards, dones, weights):
+        with tf.device(self.device):
+            batch_size = states.shape[0]
+            not_dones = 1. - tf.cast(dones, dtype=tf.float32)
+            actions = tf.cast(actions, dtype=tf.int32)
+            
+            indices = tf.concat(
+                values=[tf.expand_dims(tf.range(batch_size), axis=1),
+                        actions], axis=1)
+            
+            with tf.GradientTape(persistent=True) as tape:
+                # Compute critic loss
+                next_action_prob = self.actor(next_states)
+                next_action_logp = tf.math.log(next_action_prob + 1e-8)
+                next_q = tf.minimum(
+                    self.qf1_target(next_states), self.qf2_target(next_states))
 
-        obs = self._env.reset()
+                # Compute state value function V by directly computes expectation
+                target_q = tf.expand_dims(tf.einsum(
+                    'ij,ij->i', next_action_prob, next_q - self.alpha * next_action_logp), axis=1)  # Eq.(10)
+                target_q = tf.stop_gradient(
+                    rewards + not_dones * self.discount * target_q)
 
-        while total_steps < self._max_steps:
-            # Replay collected data to get around live training
-            if hasattr(self, 'rep_buff'):
-                replay_buffer.add(obs=self.rep_buff["obs"][total_steps % len(self.rep_buff["obs"])],
-                                  act=self.rep_buff["act"][total_steps % len(self.rep_buff["act"])],
-                                  next_obs=self.rep_buff["rew"][(total_steps + 1) % len(self.rep_buff["rew"])],
-                                  rew=self.rep_buff["rew"][total_steps % len(self.rep_buff["rew"])],
-                                  done=True)
-                if total_steps % self._policy.update_interval == 0:
-                    samples = replay_buffer.sample(self._policy.batch_size)
-                    with tf.summary.record_if(total_steps % self._save_summary_interval == 0):
-                        self._policy.train(
-                            samples["obs"], samples["act"], samples["next_obs"],
-                            samples["rew"], np.array(samples["done"], dtype=np.float32),
-                            None if not self._use_prioritized_rb else samples["weights"])
-                    if self._use_prioritized_rb:
-                        td_error = self._policy.compute_td_error(
-                            samples["obs"], samples["act"], samples["next_obs"],
-                            samples["rew"], np.array(samples["done"], dtype=np.float32))
-                        replay_buffer.update_priorities(
-                            samples["indexes"], np.abs(td_error) + 1e-6)
-            else:
-                if total_steps < self._policy.n_warmup:
-                    action = self._env.action_space.sample()
-                else:
-                    action = self._policy.get_action(obs)
-                    
-
-                next_obs, reward, done, _ = self._env.step(action)
-                if self._show_progress:
-                    self._env.render()
-                episode_steps += 1
-                episode_return += reward
-                total_steps += 1
-                tf.summary.experimental.set_step(total_steps)
-
+                current_q1 = self.qf1(states)
                 
-                done_flag = done
-                            
-                if hasattr(self._env, "_max_episode_steps") and \
-                        episode_steps == self._env._max_episode_steps:
-                    done_flag = False
-                    
-                replay_buffer.add(obs=obs, act=action,
-                                  next_obs=next_obs, rew=reward, done=done_flag)
-                obs = next_obs
-                if done or episode_steps == self._episode_max_steps:
-                    # obs = self._env.reset() # EPS are length 1
+                current_q2 = self.qf2(states)
 
-                    n_episode += 1
-                    fps = episode_steps / (time.perf_counter() - episode_start_time)
-                    self.logger.info("Total Epi: {0: 5} Steps: {1: 7} Episode Steps: {2: 5} Return: {3: 5.4f} FPS: {4:5.2f}".format(
-                        n_episode, total_steps, episode_steps, episode_return, fps))
-                    tf.summary.scalar(
-                        name="Common/training_return", data=episode_return)
+                td_loss1 = tf.reduce_mean(huber_loss(
+                    target_q - tf.expand_dims(tf.gather_nd(current_q1, indices), axis=1),
+                    delta=self.max_grad) * weights)
+                td_loss2 = tf.reduce_mean(huber_loss(
+                    target_q - tf.expand_dims(tf.gather_nd(current_q2, indices), axis=1),
+                    delta=self.max_grad) * weights)  # Eq.(7)
 
-                    episode_steps = 0
-                    episode_return = 0
-                    episode_start_time = time.perf_counter()
+                # Compute actor loss
+                current_action_prob = self.actor(states)
+                current_action_logp = tf.math.log(current_action_prob + 1e-8)
 
-                if total_steps < self._policy.n_warmup:
-                    continue
+                policy_loss = tf.reduce_mean(
+                    tf.einsum('ij,ij->i', current_action_prob,
+                              self.alpha * current_action_logp - tf.stop_gradient(
+                                  tf.minimum(current_q1, current_q2))) * weights)  # Eq.(12)
+                mean_ent = tf.reduce_mean(
+                    tf.einsum('ij,ij->i', current_action_prob, current_action_logp)) * (-1)
 
-                if total_steps % self._policy.update_interval == 0:
-                    samples = replay_buffer.sample(self._policy.batch_size)
-                    with tf.summary.record_if(total_steps % self._save_summary_interval == 0):
-                        self._policy.train(
-                            samples["obs"], samples["act"], samples["next_obs"],
-                            samples["rew"], np.array(samples["done"], dtype=np.float32),
-                            None if not self._use_prioritized_rb else samples["weights"])
-                    if self._use_prioritized_rb:
-                        td_error = self._policy.compute_td_error(
-                            samples["obs"], samples["act"], samples["next_obs"],
-                            samples["rew"], np.array(samples["done"], dtype=np.float32))
-                        replay_buffer.update_priorities(
-                            samples["indexes"], np.abs(td_error) + 1e-6)
+                if self.auto_alpha:
+                    alpha_loss = -tf.reduce_mean(
+                        (self.log_alpha * tf.stop_gradient(current_action_logp + self.target_alpha)))
 
-                if total_steps % self._test_interval == 0:
-                    avg_test_return = self.evaluate_policy(total_steps)
-                    self.logger.info("Evaluation Total Steps: {0: 7} Average Reward {1: 5.4f} over {2: 2} episodes".format(
-                        total_steps, avg_test_return, self._test_episodes))
-                    tf.summary.scalar(
-                        name="Common/average_test_return", data=avg_test_return)
-                    tf.summary.scalar(name="Common/fps", data=fps)
-                    self.writer.flush()
+            q1_grad = tape.gradient(td_loss1, self.qf1.trainable_variables)
+            self.qf1_optimizer.apply_gradients(
+                zip(q1_grad, self.qf1.trainable_variables))
+            q2_grad = tape.gradient(td_loss2, self.qf2.trainable_variables)
+            self.qf2_optimizer.apply_gradients(
+                zip(q2_grad, self.qf2.trainable_variables))
 
-                if total_steps % self._save_model_interval == 0:
-                    self.checkpoint_manager.save()
+            if self.target_hard_update:
+                if self.n_training % self.target_update_interval == 0:
+                    update_target_variables(self.qf1_target.weights,
+                                            self.qf1.weights, tau=1.)
+                    update_target_variables(self.qf2_target.weights,
+                                            self.qf2.weights, tau=1.)
+            else:
+                update_target_variables(self.qf1_target.weights,
+                                        self.qf1.weights, tau=self.tau)
+                update_target_variables(self.qf2_target.weights,
+                                        self.qf2.weights, tau=self.tau)
 
-        tf.summary.flush()
+            actor_grad = tape.gradient(
+                policy_loss, self.actor.trainable_variables)
+            self.actor_optimizer.apply_gradients(
+                zip(actor_grad, self.actor.trainable_variables))
 
-    def evaluate_policy(self, total_steps):
-        tf.summary.experimental.set_step(total_steps)
-        if self._normalize_obs:
-            self._test_env.normalizer.set_params(
-                *self._env.normalizer.get_params())
-        avg_test_return = 0.
-        if self._save_test_path:
-            replay_buffer = get_replay_buffer(
-                self._policy, self._test_env, size=self._episode_max_steps)
-        for i in range(self._test_episodes):
-            episode_return = 0.
-            frames = []
-            obs = self._test_env.reset()
-            for _ in range(self._episode_max_steps):
-                action = self._policy.get_action(obs, test=True)
-                next_obs, reward, done, _ = self._test_env.step(action)
-                if self._save_test_path:
-                    replay_buffer.add(obs=obs, act=action,
-                                      next_obs=next_obs, rew=reward, done=done)
+            if self.auto_alpha:
+                alpha_grad = tape.gradient(alpha_loss, [self.log_alpha])
+                self.alpha_optimizer.apply_gradients(
+                    zip(alpha_grad, [self.log_alpha]))
+                self.alpha.assign(tf.exp(self.log_alpha))
 
-                if self._save_test_movie:
-                    frames.append(self._test_env.render(mode='rgb_array'))
-                elif self._show_test_progress:
-                    self._test_env.render()
-                episode_return += reward
-                obs = next_obs
-                if done:
-                    break
-            prefix = "step_{0:08d}_epi_{1:02d}_return_{2:010.4f}".format(
-                total_steps, i, episode_return)
-            if self._save_test_path:
-                save_path(replay_buffer._encode_sample(np.arange(self._episode_max_steps)),
-                          os.path.join(self._output_dir, prefix + ".pkl"))
-                replay_buffer.clear()
-            if self._save_test_movie:
-                frames_to_gif(frames, prefix, self._output_dir)
-            avg_test_return += episode_return
-        if self._show_test_images:
-            images = tf.cast(
-                tf.expand_dims(np.array(obs).transpose(2, 0, 1), axis=3),
-                tf.uint8)
-            tf.summary.image('train/input_img', images,)
-        return avg_test_return / self._test_episodes
+        return (td_loss1 + td_loss2) / 2., policy_loss, mean_ent, \
+            tf.reduce_min(current_action_logp), tf.reduce_max(current_action_logp), \
+            tf.reduce_mean(current_action_logp)

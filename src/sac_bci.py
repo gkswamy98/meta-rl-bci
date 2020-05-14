@@ -54,9 +54,12 @@ class SACBCI(SACDiscrete):
             np.float32) if is_single_state else state
         if len(state.shape) == 3:
             print(state.shape)
-        action = self._get_action_body(tf.constant(state), test)
-        # TODO: should this be sampling?
-        return np.argmax(action.numpy(), axis=-1) 
+        probs = self._get_action_body(tf.constant(state), test)
+    
+        if test:
+            return np.argmax(probs.numpy(), axis=-1) 
+        else:
+            return tf.random.categorical(tf.math.log(tf.expand_dims(probs, 0)), 1)
 
         
     def _train_body(self, states, actions, next_states, rewards, dones, weights):
