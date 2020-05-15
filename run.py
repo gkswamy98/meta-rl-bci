@@ -142,7 +142,7 @@ def main():
                     obs, reward, _, _, = env.step(action)
                     epoch_act.append(action)
                     epoch_rew.append(reward)
-                    env.render()
+                    time.sleep(2.5)
                 epoch_obs.append(obs)
                 print("Training ...")
                 parser.set_defaults(max_steps=2000) # might need to tune ...

@@ -27,7 +27,7 @@ class Streamer:
         eeg_data = eeg_data / 1000000
         samples = []
         for (low, high) in freq_ranges:
-            raw = mne.io.RawArray(eeg_data, self.info)
+            raw = mne.io.RawArray(np.copy(eeg_data), self.info)
             raw.filter(low, high, fir_design='firwin')
             samples.append(np.expand_dims(raw.get_data()[:, -num_samples:], 0))
         return samples

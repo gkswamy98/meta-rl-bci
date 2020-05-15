@@ -28,9 +28,9 @@ def EEGNet(nb_classes = 2, Chans = 16, Samples = 125,
     layers.append(Conv2D(F1, (1, kernLength), padding = 'same', input_shape = (1, Chans, Samples), use_bias = False))
     
     layers.append(Permute((2, 3, 1)))
-    layers.append(BatchNormalization(axis = -1))
+    #layers.append(BatchNormalization(axis = -1))
     layers.append(DepthwiseConv2D((Chans, 1), use_bias = False, depth_multiplier = D, depthwise_constraint = max_norm(1.), data_format="channels_last"))
-    layers.append(BatchNormalization(axis = -1))
+    #layers.append(BatchNormalization(axis = -1))
     layers.append(Permute((3, 1, 2)))
     
     layers.append(Activation('elu'))
@@ -43,7 +43,7 @@ def EEGNet(nb_classes = 2, Chans = 16, Samples = 125,
     
     layers.append(Permute((2, 3, 1)))
     layers.append(SeparableConv2D(F2, (1, 16), use_bias = False, padding = 'same', data_format="channels_last"))
-    layers.append(BatchNormalization(axis = -1))
+    #layers.append(BatchNormalization(axis = -1))
     layers.append(Permute((3, 1, 2)))
     
     layers.append(Activation('elu'))
