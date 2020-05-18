@@ -91,11 +91,27 @@ class BCITrainer(Trainer):
         while total_steps < self._max_steps:
             # Replay collected data to get around live training
             if hasattr(self, 'rep_buff'):
+                done = True # single sample eps
+                reward = self.rep_buff["rew"][total_steps % len(self.rep_buff["rew"])]
                 replay_buffer.add(obs=self.rep_buff["obs"][total_steps % len(self.rep_buff["obs"])],
                                   act=self.rep_buff["act"][total_steps % len(self.rep_buff["act"])],
-                                  next_obs=self.rep_buff["rew"][(total_steps + 1) % len(self.rep_buff["rew"])],
-                                  rew=self.rep_buff["rew"][total_steps % len(self.rep_buff["rew"])],
-                                  done=True)
+                                  next_obs=self.rep_buff["obs"][(total_steps + 1) % len(self.rep_buff["obs"])],
+                                  rew=reward,
+                                  done=done)
+                episode_steps += 1
+                episode_return += reward
+                total_steps += 1
+                tf.summary.experimental.set_step(total_steps)
+                
+                if done:
+                    n_episode += 1
+                    fps = episode_steps / (time.perf_counter() - episode_start_time)
+                    self.logger.info("Total Epi: {0: 5} Steps: {1: 7} Episode Steps: {2: 5} Return: {3: 5.4f} FPS: {4:5.2f}".format(
+                        n_episode, total_steps, episode_steps, np.sum(episode_return), fps))
+                    episode_steps = 0
+                    episode_return = 0
+                    episode_start_time = time.perf_counter()
+
                 if total_steps % self._policy.update_interval == 0:
                     samples = replay_buffer.sample(self._policy.batch_size)
                     with tf.summary.record_if(total_steps % self._save_summary_interval == 0):

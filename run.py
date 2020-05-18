@@ -10,6 +10,7 @@ from src.sac_bci import SACBCI
 from src.bci_trainer import BCITrainer
 from src.streamer import Streamer
 from src.cursor_ctrl import CursorCtrl
+from brainflow.board_shim import BoardShim, BrainFlowInputParams
 
 PROMPT = """What would you like to do?
 1) Initialize via meta-learning.
@@ -52,6 +53,11 @@ def main():
     policy, parser = init_policy()
     args = parser.parse_args("")
     reward_dec = EEGNet()
+    ctrl_dec = EEGNet()
+    value_dec = EEGNet(softmax=False)
+    params = BrainFlowInputParams()
+    params.serial_port = "/dev/cu.usbserial-DM01MTXZ"
+    board = BoardShim(2, params)
     while True:
         task = input(PROMPT)
         if task.isdigit():
@@ -61,14 +67,12 @@ def main():
                 # ERP
                 erp_datasets = format_datasets(task="erp")
                 reward_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
-                reptile(reward_dec, ctrl_datasets, save_weights=True, task="erp")
+                reptile(reward_dec, erp_datasets, save_weights=True, task="erp")
                 # CTRL
-                ctrl_dec = EEGNet()
                 ctrl_datasets = format_datasets(task="ctrl")
                 ctrl_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
                 reptile(ctrl_dec, ctrl_datasets, save_weights=True, task="ctrl")
                 # Value
-                value_dec = EEGNet(softmax=False)
                 value_dec.compile(loss='mse', optimizer='adam', metrics = ['mse'])
                 for dataset in erp_datasets:
                     dataset["y_train"] = np.abs(dataset["y_train"] - 1)
@@ -84,7 +88,7 @@ def main():
         elif task == 2:
             data_idx = 101
             print("Collecting data at index {0}.".format(data_idx))
-            streamer = Streamer(data_idx=data_idx)
+            streamer = Streamer(data_idx=data_idx, board=board)
             cursor_ctrl = CursorCtrl(data_idx=data_idx)
             cursor_ctrl.run_game(1800)
             streamer.save_data()
@@ -124,13 +128,13 @@ def main():
             policy.qf1_target.load_weights('./models/vf_d{0}.h5'.format(data_idx))
             print("Finished training.")
         elif task == 3:
-            streamer = Streamer(data_idx=102)
+            streamer = Streamer(data_idx=102, board=board)
             cursor_ctrl = CursorCtrl(data_idx=102)
             env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
             for ft_epoch in range(3):
                 thread = threading.Thread(target=cursor_ctrl.render_for, args=(300,))
                 thread.start()
-                print("On Round {0} / 3".format(ft_epoch))
+                print("On Round {0} / 3".format(ft_epoch + 1))
                 start_time = time.time()
                 epoch_obs = []
                 epoch_act = []
@@ -147,8 +151,8 @@ def main():
                 print("Training ...")
                 parser.set_defaults(max_steps=2000) # might need to tune ...
                 args = parser.parse_args("")
-                rep_buff = {'action': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
-                trainer = BCITrainer(policy, env, args, test_env=test_env)
+                rep_buff = {'act': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
+                trainer = BCITrainer(policy, env, args)
                 trainer.rep_buff = rep_buff # pulls data from here instead
                 trainer()
             print("Finished fine-tuning.")
@@ -167,7 +171,7 @@ def main():
             print('Saved weights with prefix {0}'.format(name))
         elif task == 5:
             print("Starting up CursorCtrl for 1 minute.")
-            streamer = Streamer(data_idx=103)
+            streamer = Streamer(data_idx=103, board=board)
             cursor_ctrl = CursorCtrl(data_idx=103)
             env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
             thread = threading.Thread(target=cursor_ctrl.render_for, args=(60,))

@@ -7,10 +7,8 @@ import mne
 
 
 class Streamer:
-    def __init__(self, data_idx=101):
+    def __init__(self, data_idx=101, board=None):
         self.data_idx = data_idx
-        params = BrainFlowInputParams()
-        params.serial_port = "/dev/cu.usbserial-DM01MTXZ"
         self.board_id = 2
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
         sfreq = BoardShim.get_sampling_rate(self.board_id)
@@ -18,7 +16,12 @@ class Streamer:
         ch_types = ['eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg']
         ch_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P']
         self.info = mne.create_info (ch_names = ch_names, sfreq = sfreq, ch_types = ch_types)
-        self.board = BoardShim(self.board_id, params)
+        if board is not None:
+            self.board = board
+        else:
+            params = BrainFlowInputParams()
+            params.serial_port = "/dev/cu.usbserial-DM01MTXZ"
+            board = BoardShim(self.board_id, params)
         self.board.prepare_session()
         self.board.start_stream()
     def get_data(self, num_samples, freq_ranges):
