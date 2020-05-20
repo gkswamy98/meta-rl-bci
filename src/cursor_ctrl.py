@@ -99,7 +99,6 @@ class CursorCtrl:
             self.action_buffer = self.action_buffer[1:]
             self.execute_ctrl(action)
             self.render()
-            self.delay_for(self.delay)
     def delay_for(self, t):
         pygame.time.delay(int(t * 1000))
     def reset(self):

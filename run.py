@@ -129,10 +129,9 @@ def main():
                           epochs = 100, 
                           verbose = 2,
                           validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
-            reward_dec.save_weights('./models/erp_d{0}.h5'.format(data_idx))
-            ctrl_dec.save_weights('./models/ctrl_d{0}.h5'.format(data_idx))
-            value_dec.save_weights('./models/vf_d{0}.h5'.format(data_idx))
+            reward_dec.load_weights('./models/erp_d{0}.h5'.format(data_idx))
             ctrl_dec.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
+            value_dec.load_weights('./models/vf_d{0}.h5'.format(data_idx))
             policy.actor.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
             policy.qf1.load_weights('./models/vf_d{0}.h5'.format(data_idx))
             policy.qf1_target.load_weights('./models/vf_d{0}.h5'.format(data_idx))
@@ -154,10 +153,10 @@ def main():
                     obs = denoise(obs)
                     epoch_obs.append(obs)
                     action = policy.get_action(obs)
+                    time.sleep(2.5)
                     obs, reward, _, _, = env.step(action)
                     epoch_act.append(action)
                     epoch_rew.append(reward)
-                    time.sleep(2.5)
                 epoch_obs.append(obs)
                 print("Training ...")
                 parser.set_defaults(max_steps=2000) # might need to tune ...
@@ -181,22 +180,22 @@ def main():
             policy.qf2_target.save_weights('./models/{0}/policy_qf2_target.h5'.format(name))
             print('Saved weights with prefix {0}'.format(name))
         elif task == 5:
+            duration = 60
             print("Starting up CursorCtrl for 1 minute.")
             streamer = Streamer(data_idx=103, board=board)
             cursor_ctrl = CursorCtrl(data_idx=103)
             env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
-            thread = threading.Thread(target=cursor_ctrl.render_for, args=(120,))
+            thread = threading.Thread(target=cursor_ctrl.render_for, args=(duration,))
             thread.start()
             start_time = time.time()
             all_obs = []
             obs = env.reset()
-            while time.time() - start_time < 120.:
+            while time.time() - start_time < duration:
                 obs = denoise(obs)
                 all_obs.append(obs)
-                probs = ctrl_dec.predict(np.expand_dims(obs, 0))
                 action = policy.get_action(obs, test=True)
-                obs, _, _, _,= env.step(action)
                 time.sleep(2.5)
+                obs, _, _, _,= env.step(action)
             np.save("all_obs_17.npy", all_obs)
         elif task == 6:
             exit()
