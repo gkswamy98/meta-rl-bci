@@ -1,5 +1,13 @@
 import numpy as np
 from tensorflow.keras import utils as np_utils
+from brainflow.data_filter import DataFilter, FilterTypes, AggOperations
+
+def denoise(sample, num_channels=16):
+    for channel in range(num_channels):
+        DataFilter.perform_rolling_filter(sample[0][channel], 3, AggOperations.MEDIAN.value)
+        DataFilter.perform_wavelet_denoising(sample[0][channel], 'db6', 3)
+    sample = sample / np.expand_dims(sample.std(axis=-1), axis=-1)
+    return sample
 
 def load_data(data_idx, freq=125):
     # Load Data

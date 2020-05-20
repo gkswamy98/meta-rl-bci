@@ -55,7 +55,7 @@ class SACBCI(SACDiscrete):
         if len(state.shape) == 3:
             print(state.shape)
         probs = self._get_action_body(tf.constant(state), test)
-    
+        print('PLOCY_PROBS', probs)
         if test:
             return np.argmax(probs.numpy(), axis=-1) 
         else:

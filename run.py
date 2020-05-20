@@ -2,7 +2,7 @@ import numpy as np
 import os
 import time
 import threading
-from src.data_utils import load_data, format_datasets
+from src.data_utils import load_data, format_datasets, denoise
 from src.meta_learning import reptile
 from src.eegnet import EEGNet
 from src.bci_env import BCIEnv
@@ -11,6 +11,7 @@ from src.bci_trainer import BCITrainer
 from src.streamer import Streamer
 from src.cursor_ctrl import CursorCtrl
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
+
 
 PROMPT = """What would you like to do?
 1) Initialize via meta-learning.
@@ -58,6 +59,8 @@ def main():
     params = BrainFlowInputParams()
     params.serial_port = "/dev/cu.usbserial-DM01MTXZ"
     board = BoardShim(2, params)
+    board.prepare_session()
+    board.start_stream()
     while True:
         task = input(PROMPT)
         if task.isdigit():
@@ -86,30 +89,36 @@ def main():
                 value_dec.load_weights('./models/vf_meta_init.h5')
                 print("Loaded meta-learned weights.")
         elif task == 2:
-            data_idx = 101
+            data_idx = 17
             print("Collecting data at index {0}.".format(data_idx))
             streamer = Streamer(data_idx=data_idx, board=board)
-            cursor_ctrl = CursorCtrl(data_idx=data_idx)
-            cursor_ctrl.run_game(1800)
-            streamer.save_data()
-            streamer.close()
+            cursor_ctrl = CursorCtrl(data_idx=data_idx, streamer=streamer)
+            cursor_ctrl.run_game(30 * 60)
             cursor_ctrl.close()
-            print("Training.")
+            print("Training ...")
             reward_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
             ctrl_dec.compile(loss='categorical_crossentropy', optimizer='adam', metrics = ['accuracy'])
             value_dec.compile(loss='mse', optimizer='adam', metrics = ['mse'])
             erp_dataset = format_datasets(data_idxs=[data_idx], task="erp")[0]
             ctrl_dataset = format_datasets(data_idxs=[data_idx], task="ctrl")[0]
+            for dp in range(len(erp_dataset["x_test"])):
+                erp_dataset["x_test"][dp] = denoise(erp_dataset["x_test"][dp])
+            for dp in range(len(erp_dataset["x_train"])):
+                erp_dataset["x_train"][dp] = denoise(erp_dataset["x_train"][dp])
+            for dp in range(len(ctrl_dataset["x_test"])):
+                ctrl_dataset["x_test"][dp] = denoise(ctrl_dataset["x_test"][dp])
+            for dp in range(len(ctrl_dataset["x_train"])):
+                ctrl_dataset["x_train"][dp] = denoise(ctrl_dataset["x_train"][dp])
             reward_dec.fit(erp_dataset["x_train"],
                            erp_dataset["y_train"],
                            batch_size = 16,
-                           epochs = 300, 
+                           epochs = 100, 
                            verbose = 2,
                            validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
             ctrl_dec.fit(ctrl_dataset["x_train"],
                          ctrl_dataset["y_train"],
                          batch_size = 16,
-                         epochs = 300, 
+                         epochs = 100, 
                          verbose = 2,
                          validation_data=(ctrl_dataset["x_test"], ctrl_dataset["y_test"]))
             erp_dataset["y_train"] = np.abs(erp_dataset["y_train"] - 1)
@@ -117,12 +126,13 @@ def main():
             value_dec.fit(erp_dataset["x_train"],
                           erp_dataset["y_train"],
                           batch_size = 16,
-                          epochs = 300, 
+                          epochs = 100, 
                           verbose = 2,
                           validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
             reward_dec.save_weights('./models/erp_d{0}.h5'.format(data_idx))
             ctrl_dec.save_weights('./models/ctrl_d{0}.h5'.format(data_idx))
             value_dec.save_weights('./models/vf_d{0}.h5'.format(data_idx))
+            ctrl_dec.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
             policy.actor.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
             policy.qf1.load_weights('./models/vf_d{0}.h5'.format(data_idx))
             policy.qf1_target.load_weights('./models/vf_d{0}.h5'.format(data_idx))
@@ -141,6 +151,7 @@ def main():
                 epoch_rew = []
                 obs = env.reset()
                 while time.time() - start_time < 300.:
+                    obs = denoise(obs)
                     epoch_obs.append(obs)
                     action = policy.get_action(obs)
                     obs, reward, _, _, = env.step(action)
@@ -174,14 +185,19 @@ def main():
             streamer = Streamer(data_idx=103, board=board)
             cursor_ctrl = CursorCtrl(data_idx=103)
             env = BCIEnv(is_live=True, streamer=streamer, reward_dec=reward_dec, cursor_ctrl=cursor_ctrl)
-            thread = threading.Thread(target=cursor_ctrl.render_for, args=(60,))
+            thread = threading.Thread(target=cursor_ctrl.render_for, args=(120,))
             thread.start()
             start_time = time.time()
+            all_obs = []
             obs = env.reset()
-            while time.time() - start_time < 60.:
-                action = policy.get_action(obs)
+            while time.time() - start_time < 120.:
+                obs = denoise(obs)
+                all_obs.append(obs)
+                probs = ctrl_dec.predict(np.expand_dims(obs, 0))
+                action = policy.get_action(obs, test=True)
                 obs, _, _, _,= env.step(action)
                 time.sleep(2.5)
+            np.save("all_obs_17.npy", all_obs)
         elif task == 6:
             exit()
         else:

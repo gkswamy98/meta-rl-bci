@@ -11,6 +11,7 @@ class Streamer:
         self.data_idx = data_idx
         self.board_id = 2
         self.eeg_channels = BoardShim.get_eeg_channels(self.board_id)
+        self.ts_channels = BoardShim.get_timestamp_channel(self.board_id)
         sfreq = BoardShim.get_sampling_rate(self.board_id)
         self.freq = sfreq
         ch_types = ['eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg']
@@ -22,31 +23,38 @@ class Streamer:
             params = BrainFlowInputParams()
             params.serial_port = "/dev/cu.usbserial-DM01MTXZ"
             board = BoardShim(self.board_id, params)
-        self.board.prepare_session()
-        self.board.start_stream()
-    def get_data(self, num_samples, freq_ranges):
-        data = self.board.get_current_board_data(1000) # extra time for proper filtering
+            self.board.prepare_session()
+            self.board.start_stream()
+    def get_data(self, num_samples, freq_ranges, time=False):
+        data = self.board.get_current_board_data(60 * self.freq)
         eeg_data = data[self.eeg_channels, :] 
         eeg_data = eeg_data / 1000000
         samples = []
         for (low, high) in freq_ranges:
             raw = mne.io.RawArray(np.copy(eeg_data), self.info)
             raw.filter(low, high, fir_design='firwin')
-            samples.append(np.expand_dims(raw.get_data()[:, -num_samples:], 0))
-        return samples
+            sample = raw.get_data()[:, -num_samples:]
+            samples.append(np.expand_dims(sample, 0))
+        if time:
+            return samples, data[self.ts_channels, -num_samples:]
+        else:
+            return samples
     def save_data(self):
-        data = self.board.get_board_data()
+        data = self.board.get_current_board_data(self.board.get_board_data_count())
         ts_channels = BoardShim.get_timestamp_channel(self.board_id)
         eeg_data = data[self.eeg_channels, :]
         eeg_ts = data[ts_channels, :]
         eeg_data = eeg_data / 1000000
+        np.save("raw_data.npy", eeg_data)
         raw = mne.io.RawArray (eeg_data, self.info)
-        raw2 = mne.io.RawArray (np.copy(eeg_data), self.info)
+        raw2 = mne.io.RawArray (np.copy(eeg_data), self.info) # do this if need be ...
         raw.filter(0.5, 40., fir_design='firwin')
         raw2.filter(1.0, 60., fir_design='firwin')
-        np.save("./data/eeg_data_{0}.npy".format(self.data_idx), np.transpose(raw.get_data()))
-        np.save("./data/eeg_fft_data_{0}.npy".format(self.data_idx), np.transpose(raw2.get_data()))
-        np.save("./data/eeg_timestamps_{0}.npy".format(self.data_idx), eeg_ts)
+        data1 = raw.get_data()
+        data2 = raw2.get_data()
+        np.save("./data/eeg_data_{0}_old.npy".format(self.data_idx), np.transpose(data1))
+        np.save("./data/eeg_fft_data_{0}_old.npy".format(self.data_idx), np.transpose(data2))
+        np.save("./data/eeg_timestamps_{0}_old.npy".format(self.data_idx), eeg_ts)
     def close(self):
         self.board.stop_stream()
         self.board.release_session()

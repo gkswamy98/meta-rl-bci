@@ -2,6 +2,7 @@ import gym
 from gym import spaces
 import numpy as np
 import time
+from src.data_utils import denoise
 
 def inf_loop_gen(arr):
     i = 0
@@ -59,7 +60,8 @@ class BCIEnv(gym.Env):
         else:
             self.cursor_ctrl.action_buffer.append(action)
             data = self.streamer.get_data(int(self.delay * self.freq), [(0.5, 40.), (1., 60.)])
-            is_error = np.argmax(self.reward_dec.predict(np.expand_dims(data[0][:, :, :self.freq], axis=0)), axis=-1)
+            rew_dec_input = np.expand_dims(denoise(data[0][:, :, :self.freq]), axis=0)
+            is_error = np.argmax(self.reward_dec.predict(rew_dec_input), axis=-1)
             reward = np.abs(1 - is_error) / self.ep_len
             obs = data[1][:, :, int(1.4 * self.freq): int(2.4 * self.freq)]
         if self.t % self.ep_len == 0:

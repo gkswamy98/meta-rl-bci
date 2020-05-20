@@ -14,7 +14,7 @@ UP = 2
 DOWN = 3
 
 class CursorCtrl:
-    def __init__(self, num_actions=2, delay=2.5, data_idx=101):
+    def __init__(self, num_actions=2, delay=2.5, data_idx=101, streamer=None):
         self.data_idx = data_idx
         self.num_actions = num_actions
         pygame.init()
@@ -22,6 +22,10 @@ class CursorCtrl:
         self.delay = delay
         pygame.display.set_caption('Cursor CTRL')
         self.action_buffer = []
+        self.streamer = streamer
+        self.ctrl_buffer = []
+        self.erp_buffer = []
+        self.ts_buffer = []
         self.reset()
     def render(self):
         self.screen.fill(BLACK)
@@ -77,6 +81,11 @@ class CursorCtrl:
             self.execute_ctrl(ctrl)
             self.render()
             self.delay_for(self.delay)
+            if self.streamer is not None:
+                samples, ts = self.streamer.get_data(int(self.delay * 125), [(0.5, 40.), (1., 60.)], time=True)
+                self.erp_buffer.append(samples[0])
+                self.ctrl_buffer.append(samples[1])
+                self.ts_buffer.append(ts)
     def render_for(self, game_len=1800):
         start_time = time.time()
         while time.time() - start_time < game_len:
@@ -87,7 +96,7 @@ class CursorCtrl:
             while len(self.action_buffer) == 0:
                 time.sleep(1e-3)
             action = self.action_buffer[0]
-            action_buffer = self.action_buffer[1:]
+            self.action_buffer = self.action_buffer[1:]
             self.execute_ctrl(action)
             self.render()
             self.delay_for(self.delay)
@@ -100,6 +109,13 @@ class CursorCtrl:
         self.incorrect_times = []
         self.action_times = [[] for _ in range(self.num_actions)]
     def close(self):
+        if self.streamer is not None:
+            d1 = np.concatenate(self.erp_buffer, axis=-1)
+            d2 = np.concatenate(self.ctrl_buffer, axis=-1)
+            d3 = np.concatenate(self.ts_buffer, axis=-1)
+            np.save("./data/eeg_data_{0}.npy".format(self.data_idx), np.transpose(d1))
+            np.save("./data/eeg_fft_data_{0}.npy".format(self.data_idx), np.transpose(d2))
+            np.save("./data/eeg_timestamps_{0}.npy".format(self.data_idx), d3)
         pygame.display.quit()
         pygame.quit()
 
