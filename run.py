@@ -89,7 +89,7 @@ def main():
                 value_dec.load_weights('./models/vf_meta_init.h5')
                 print("Loaded meta-learned weights.")
         elif task == 2:
-            data_idx = 17
+            data_idx = 18
             print("Collecting data at index {0}.".format(data_idx))
             streamer = Streamer(data_idx=data_idx, board=board)
             cursor_ctrl = CursorCtrl(data_idx=data_idx, streamer=streamer)
@@ -129,9 +129,9 @@ def main():
                           epochs = 100, 
                           verbose = 2,
                           validation_data=(erp_dataset["x_test"], erp_dataset["y_test"]))
-            reward_dec.load_weights('./models/erp_d{0}.h5'.format(data_idx))
-            ctrl_dec.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
-            value_dec.load_weights('./models/vf_d{0}.h5'.format(data_idx))
+            reward_dec.save_weights('./models/erp_d{0}.h5'.format(data_idx))
+            ctrl_dec.save_weights('./models/ctrl_d{0}.h5'.format(data_idx))
+            value_dec.save_weights('./models/vf_d{0}.h5'.format(data_idx))
             policy.actor.load_weights('./models/ctrl_d{0}.h5'.format(data_idx))
             policy.qf1.load_weights('./models/vf_d{0}.h5'.format(data_idx))
             policy.qf1_target.load_weights('./models/vf_d{0}.h5'.format(data_idx))
@@ -159,7 +159,7 @@ def main():
                     epoch_rew.append(reward)
                 epoch_obs.append(obs)
                 print("Training ...")
-                parser.set_defaults(max_steps=2000) # might need to tune ...
+                parser.set_defaults(max_steps=1000)
                 args = parser.parse_args("")
                 rep_buff = {'act': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
                 trainer = BCITrainer(policy, env, args)
@@ -196,7 +196,7 @@ def main():
                 action = policy.get_action(obs, test=True)
                 time.sleep(2.5)
                 obs, _, _, _,= env.step(action)
-            np.save("all_obs_17.npy", all_obs)
+            np.save("all_obs_18.npy", all_obs)
         elif task == 6:
             exit()
         else:
