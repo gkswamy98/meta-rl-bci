@@ -10,10 +10,10 @@ from tensorflow.keras.regularizers import l1_l2
 from tensorflow.keras.layers import Input, Flatten
 from tensorflow.keras.constraints import max_norm
 
-# Modified from ARL code
+
 def EEGNet(nb_classes = 2, Chans = 16, Samples = 125, 
-             dropoutRate = 0.25, kernLength = 32, F1 = 16, 
-             D = 4, F2 = 16, norm_rate = 0.25, dropoutType = 'SpatialDropout2D', softmax=True):
+             dropoutRate = 0.5, kernLength = 32, F1 = 4, 
+             D = 2, F2 = 4, norm_rate = 0.25, dropoutType = 'Dropout', softmax=True):
     
     if dropoutType == 'SpatialDropout2D':
         dropoutType = SpatialDropout2D
@@ -25,10 +25,12 @@ def EEGNet(nb_classes = 2, Chans = 16, Samples = 125,
     inputs = Input(shape = (1, Chans, Samples))
         
     layers = []
-    layers.append(Conv2D(F1, (1, kernLength), padding = 'same', input_shape = (1, Chans, Samples), use_bias = False))
+    layers.append(Conv2D(F1, (1, kernLength), padding = 'valid', input_shape = (1, Chans, Samples), use_bias = False))
     
     layers.append(Permute((2, 3, 1)))
+    layers.append(BatchNormalization(axis = -1))
     layers.append(DepthwiseConv2D((Chans, 1), use_bias = False, depth_multiplier = D, depthwise_constraint = max_norm(1.), data_format="channels_last"))
+    layers.append(BatchNormalization(axis = -1))
     layers.append(Permute((3, 1, 2)))
     
     layers.append(Activation('elu'))
@@ -40,7 +42,8 @@ def EEGNet(nb_classes = 2, Chans = 16, Samples = 125,
     layers.append(dropoutType(dropoutRate))
     
     layers.append(Permute((2, 3, 1)))
-    layers.append(SeparableConv2D(F2, (1, 16), use_bias = False, padding = 'same', data_format="channels_last"))
+    layers.append(SeparableConv2D(F2, (1, 16), use_bias = False, padding = 'valid', data_format="channels_last"))
+    layers.append(BatchNormalization(axis = -1))
     layers.append(Permute((3, 1, 2)))
     
     layers.append(Activation('elu'))

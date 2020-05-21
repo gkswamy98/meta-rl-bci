@@ -6,6 +6,8 @@ import time
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 GREEN = (50, 255, 50)
+BLUE=(0,0,255)
+RED=(255,0,0)
 CIRCLE_RADIUS = 20
 SCREEN = 600, 600
 LEFT = 0
@@ -22,15 +24,25 @@ class CursorCtrl:
         self.delay = delay
         pygame.display.set_caption('Cursor CTRL')
         self.action_buffer = []
+        # Data Recording
         self.streamer = streamer
         self.ctrl_buffer = []
         self.erp_buffer = []
         self.ts_buffer = []
+        # SSVEP
+        self.ctrl_freqs = [10.25, 14.0]
+        self.ctrl_vis = [True, True]
+        self.ctrl_ts = [time.time(), time.time()]
+        self.ctrl_locs = [(0,250,50,100), (550,250,50,100)]
+        self.ctrl_col = [BLUE, RED]
         self.reset()
     def render(self):
         self.screen.fill(BLACK)
         pygame.draw.circle(self.screen, WHITE, self.cursor_pos, CIRCLE_RADIUS, 0)
         pygame.draw.circle(self.screen, GREEN, self.goal_pos, CIRCLE_RADIUS, 0)
+        for c in range(self.num_actions):
+            if self.ctrl_vis[c]:
+                pygame.draw.rect(self.screen, self.ctrl_col[c], self.ctrl_locs[c])
         pygame.display.update()
     def execute_ctrl(self, ctrl):
         if ctrl == LEFT:
@@ -79,26 +91,32 @@ class CursorCtrl:
                     self.incorrect_times.append(str(time.time()))
                     np.save("./data/incorrect_times_{0}.npy".format(self.data_idx), self.incorrect_times)
             self.execute_ctrl(ctrl)
-            self.render()
-            self.delay_for(self.delay)
+            self.render_for(self.delay)
             if self.streamer is not None:
-                samples, ts = self.streamer.get_data(int(self.delay * 125), [(0.5, 40.), (1., 60.)], time=True)
+                samples, ts = self.streamer.get_data(int(self.delay * 125), [(0.5, 40.), (9., 50.)], time=True)
                 self.erp_buffer.append(samples[0])
                 self.ctrl_buffer.append(samples[1])
                 self.ts_buffer.append(ts)
     def render_for(self, game_len=1800):
         start_time = time.time()
-        while time.time() - start_time < game_len:
+        for c in range(self.num_actions):
+            self.ctrl_ts[c] = start_time
+        t = time.time()
+        while t - start_time < game_len:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
-            while len(self.action_buffer) == 0:
-                time.sleep(1e-3)
-            action = self.action_buffer[0]
-            self.action_buffer = self.action_buffer[1:]
-            self.execute_ctrl(action)
+            if len(self.action_buffer) > 0:
+                action = self.action_buffer[0]
+                self.action_buffer = self.action_buffer[1:]
+                self.execute_ctrl(action)
+            for c in range(self.num_actions):
+                if t > self.ctrl_ts[c]:
+                    self.ctrl_vis[c] = not self.ctrl_vis[c]
+                    self.ctrl_ts[c] += 1. / self.ctrl_freqs[c]
             self.render()
+            t = time.time()
     def delay_for(self, t):
         pygame.time.delay(int(t * 1000))
     def reset(self):

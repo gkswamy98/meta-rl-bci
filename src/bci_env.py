@@ -59,7 +59,7 @@ class BCIEnv(gym.Env):
                 reward = 0.
         else:
             self.cursor_ctrl.action_buffer.append(action)
-            data = self.streamer.get_data(int(self.delay * self.freq), [(0.5, 40.), (1., 60.)])
+            data = self.streamer.get_data(int(self.delay * self.freq), [(0.5, 40.), (9., 50.)])
             rew_dec_input = np.expand_dims(denoise(data[0][:, :, :self.freq]), axis=0)
             is_error = np.argmax(self.reward_dec.predict(rew_dec_input), axis=-1)
             reward = np.abs(1 - is_error) / self.ep_len
@@ -79,7 +79,7 @@ class BCIEnv(gym.Env):
             return next(self.state_gen)
         else:
             time.sleep(self.delay + 1.)
-            data = self.streamer.get_data(int(self.delay * self.freq), [(1., 60.)])
+            data = self.streamer.get_data(int(self.delay * self.freq), [(9., 50.)])
             obs = data[0][:, :, int(1.4 * self.freq): int(2.4 * self.freq)]
             return obs
 

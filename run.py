@@ -89,7 +89,7 @@ def main():
                 value_dec.load_weights('./models/vf_meta_init.h5')
                 print("Loaded meta-learned weights.")
         elif task == 2:
-            data_idx = 18
+            data_idx = 20
             print("Collecting data at index {0}.".format(data_idx))
             streamer = Streamer(data_idx=data_idx, board=board)
             cursor_ctrl = CursorCtrl(data_idx=data_idx, streamer=streamer)
@@ -159,7 +159,7 @@ def main():
                     epoch_rew.append(reward)
                 epoch_obs.append(obs)
                 print("Training ...")
-                parser.set_defaults(max_steps=1000)
+                parser.set_defaults(max_steps=500)
                 args = parser.parse_args("")
                 rep_buff = {'act': epoch_act, 'obs': epoch_obs, 'rew': epoch_rew}
                 trainer = BCITrainer(policy, env, args)
@@ -196,7 +196,7 @@ def main():
                 action = policy.get_action(obs, test=True)
                 time.sleep(2.5)
                 obs, _, _, _,= env.step(action)
-            np.save("all_obs_18.npy", all_obs)
+            np.save("all_obs_20.npy", all_obs)
         elif task == 6:
             exit()
         else:

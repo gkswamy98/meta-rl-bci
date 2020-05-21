@@ -49,7 +49,7 @@ class Streamer:
         raw = mne.io.RawArray (eeg_data, self.info)
         raw2 = mne.io.RawArray (np.copy(eeg_data), self.info) # do this if need be ...
         raw.filter(0.5, 40., fir_design='firwin')
-        raw2.filter(1.0, 60., fir_design='firwin')
+        raw2.filter(9., 50., fir_design='firwin')
         data1 = raw.get_data()
         data2 = raw2.get_data()
         np.save("./data/eeg_data_{0}_old.npy".format(self.data_idx), np.transpose(data1))
