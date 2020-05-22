@@ -52,11 +52,9 @@ class SACBCI(SACDiscrete):
         
         state = np.expand_dims(state, axis=0).astype(
             np.float32) if is_single_state else state
-        if len(state.shape) == 3:
-            print(state.shape)
-        probs = self._get_action_body(tf.constant(state), test)
+        probs = self.actor.predict(state)
         if test:
-            return np.argmax(probs.numpy(), axis=-1) 
+            return np.argmax(probs, axis=-1) 
         else:
             return tf.random.categorical(tf.math.log(tf.expand_dims(probs, 0)), 1)
 
