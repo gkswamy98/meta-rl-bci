@@ -11,9 +11,9 @@ from tensorflow.keras.layers import Input, Flatten
 from tensorflow.keras.constraints import max_norm
 
 
-def EEGNet(nb_classes = 2, Chans = 16, Samples = 125, 
+def EEGNet(nb_classes = 2, Chans = 8, Samples = 250, 
              dropoutRate = 0.5, kernLength = 32, F1 = 4, 
-             D = 2, F2 = 4, norm_rate = 0.25, dropoutType = 'Dropout', softmax=True):
+             D = 2, F2 = 4, norm_rate = 0.25, dropoutType = 'Dropout', softmax=True, freeze_features=False):
     
     if dropoutType == 'SpatialDropout2D':
         dropoutType = SpatialDropout2D
@@ -67,4 +67,9 @@ def EEGNet(nb_classes = 2, Chans = 16, Samples = 125,
         x = l(x)
     outputs = x
     
-    return Model(inputs=inputs, outputs=outputs)
+    model = Model(inputs=inputs, outputs=outputs)
+    if freeze_features:
+        for i in range(len(model.layers) - 2):
+            model.layers[i].trainable = False
+    
+    return model
