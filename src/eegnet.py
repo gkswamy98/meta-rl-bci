@@ -13,7 +13,7 @@ from tensorflow.keras.constraints import max_norm
 
 def EEGNet(nb_classes = 2, Chans = 8, Samples = 250, 
              dropoutRate = 0.5, kernLength = 32, F1 = 4, 
-             D = 2, F2 = 4, norm_rate = 0.25, dropoutType = 'Dropout', softmax=True, freeze_features=False):
+             D = 2, F2 = 4, norm_rate = 0.25, dropoutType = 'Dropout', softmax=True, freeze_features=False, batch_norm=True):
     
     if dropoutType == 'SpatialDropout2D':
         dropoutType = SpatialDropout2D
@@ -28,9 +28,11 @@ def EEGNet(nb_classes = 2, Chans = 8, Samples = 250,
     layers.append(Conv2D(F1, (1, kernLength), padding = 'valid', input_shape = (1, Chans, Samples), use_bias = False))
     
     layers.append(Permute((2, 3, 1)))
-    layers.append(BatchNormalization(axis = -1))
+    if batch_norm:
+        layers.append(BatchNormalization(axis = -1))
     layers.append(DepthwiseConv2D((Chans, 1), use_bias = False, depth_multiplier = D, depthwise_constraint = max_norm(1.), data_format="channels_last"))
-    layers.append(BatchNormalization(axis = -1))
+    if batch_norm:
+        layers.append(BatchNormalization(axis = -1))
     layers.append(Permute((3, 1, 2)))
     
     layers.append(Activation('elu'))
@@ -43,7 +45,8 @@ def EEGNet(nb_classes = 2, Chans = 8, Samples = 250,
     
     layers.append(Permute((2, 3, 1)))
     layers.append(SeparableConv2D(F2, (1, 16), use_bias = False, padding = 'valid', data_format="channels_last"))
-    layers.append(BatchNormalization(axis = -1))
+    if batch_norm:
+        layers.append(BatchNormalization(axis = -1))
     layers.append(Permute((3, 1, 2)))
     
     layers.append(Activation('elu'))
@@ -60,7 +63,6 @@ def EEGNet(nb_classes = 2, Chans = 8, Samples = 250,
     else:
         layers.append(Activation('relu'))
         layers.append(Dense(nb_classes))
-
     
     x = inputs
     for l in layers:
@@ -68,8 +70,8 @@ def EEGNet(nb_classes = 2, Chans = 8, Samples = 250,
     outputs = x
     
     model = Model(inputs=inputs, outputs=outputs)
-    if freeze_features:
-        for i in range(len(model.layers) - 2):
-            model.layers[i].trainable = False
-    
+    # if freeze_features:
+    #     for i in range(len(model.layers) - 3):
+    #         model.layers[i].trainable = False
+
     return model

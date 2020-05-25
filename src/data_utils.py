@@ -2,26 +2,29 @@ import numpy as np
 from tensorflow.keras import utils as np_utils
 from brainflow.data_filter import DataFilter, FilterTypes, AggOperations
 
-def denoise(sample, num_channels=16):
+def denoise(sample, num_channels=8):
     for channel in range(num_channels):
         DataFilter.perform_rolling_filter(sample[0][channel], 3, AggOperations.MEDIAN.value)
         DataFilter.perform_wavelet_denoising(sample[0][channel], 'db6', 3)
     sample = sample / np.expand_dims(sample.std(axis=-1), axis=-1)
     return sample
 
-def load_data(data_idx, freq=125):
+def pad_sample(sample, sample_len=250):
+    if sample.shape[-1] < sample_len:
+        sample = np.pad(sample, [(0, 0), (0, 0), (0, sample_len - sample.shape[-1])], mode="mean")
+    return sample
+
+def load_data(data_idx, freq=250, num_actions=4):
     # Load Data
     correct_times = np.load("./data/correct_times_{0}.npy".format(data_idx))
     incorrect_times = np.load("./data/incorrect_times_{0}.npy".format(data_idx))
-    left_times = np.load("./data/left_times_{0}.npy".format(data_idx))
-    right_times = np.load("./data/right_times_{0}.npy".format(data_idx))
-    data = np.load("./data/eeg_data_{0}.npy".format(data_idx))
-    fft_data = np.load("./data/eeg_fft_data_{0}.npy".format(data_idx))
+    action_times = [np.load("./data/action_{0}_times_{1}.npy".format(act, data_idx)) for act in range(num_actions)]
+    data = np.squeeze(np.load("./data/eeg_data_{0}.npy".format(data_idx)))
+    fft_data = np.squeeze(np.load("./data/eeg_fft_data_{0}.npy".format(data_idx)))
     data_ts = np.load("./data/eeg_timestamps_{0}.npy".format(data_idx))
     correct_ts = correct_times.astype(np.float64)
     incorrect_ts = incorrect_times.astype(np.float64)
-    left_ts = left_times.astype(np.float64)
-    right_ts = right_times.astype(np.float64)
+    action_ts = [x.astype(np.float64) for x in action_times]
     # Order Events (ERP)
     correct_idx = 0
     incorrect_idx = 0
@@ -46,28 +49,18 @@ def load_data(data_idx, freq=125):
                 is_errp.append(True)
                 incorrect_idx += 1
     # Order Events (CTRL)
-    left_idx = 0
-    right_idx = 0
+    action_idxs = [0 for _ in range(num_actions)]
+    ordered_labels = []
     ts2 = []
-    is_right = []
-    while left_idx < len(left_ts) or right_idx < len(right_ts):
-        if left_idx < len(left_ts) and right_idx >= len(right_ts):
-            ts2.append(left_ts[left_idx])
-            is_right.append(False)
-            left_idx += 1
-        elif left_idx >= len(left_ts) and right_idx <= len(right_ts):
-            ts2.append(right_ts[right_idx])
-            is_right.append(True)
-            right_idx += 1
-        else:
-            if left_ts[left_idx] < right_ts[right_idx]:
-                ts2.append(left_ts[left_idx])
-                is_right.append(False)
-                left_idx += 1
-            else:
-                ts2.append(right_ts[right_idx])
-                is_right.append(True)
-                right_idx += 1
+    done = all([action_idxs[i] >= len(action_ts[i]) for i in range(num_actions)])
+    while not done:
+        valid = [i for i in range(num_actions) if action_idxs[i] < len(action_ts[i])]
+        times = [action_ts[i][action_idxs[i]] for i in valid]
+        min_idx = np.argmin(times, axis=-1)
+        ts2.append(times[min_idx])
+        ordered_labels.append(valid[min_idx])
+        action_idxs[valid[min_idx]] += 1
+        done = all([action_idxs[i] >= len(action_ts[i]) for i in range(num_actions)])
     # Create epochs (ERP)
     error_p = [[]]
     nerror_p = [[]]
@@ -106,8 +99,7 @@ def load_data(data_idx, freq=125):
     op = np.swapaxes(op, 1, 2)
     errps = np.concatenate([errps for _ in range(4)], axis=0)
     # Create Epochs (CTRL)
-    left_p = [[]]
-    right_p = [[]]
+    action_ps = [[[]] for _ in range(num_actions)]
     ts2_idx = 0
     bad_idx = []
     for i in range(len(fft_data)):
@@ -116,31 +108,21 @@ def load_data(data_idx, freq=125):
         if delta < 0:
             pass
         elif delta < 2.5 and delta > 0.:
-            if is_right[ts2_idx]:
-                right_p[-1].append(fft_data[i])
-            else:
-                left_p[-1].append(fft_data[i])
+            action_ps[ordered_labels[ts2_idx]][-1].append(fft_data[i])
         elif delta > 2.5:
-            if is_right[ts2_idx]:
-                if len(right_p[-1]) < 2.4 * freq:
-                    right_p = right_p[:-1]
-                    bad_idx.append(ts2_idx)
-            else:
-                if len(left_p[-1]) < 2.4 * freq:
-                    left_p = left_p[:-1]
-                    bad_idx.append(ts2_idx)
+            if len(action_ps[ordered_labels[ts2_idx]][-1]) < 1.5 * freq:
+                action_ps[ordered_labels[ts2_idx]] = action_ps[ordered_labels[ts2_idx]][:-1]
+                bad_idx.append(ts2_idx)
             ts2_idx += 1
-            right_p.append([])
-            left_p.append([])
+            for j in range(num_actions):
+                action_ps[j].append([])
             if ts2_idx == len(ts2):
                 break
-    right_p = [x for x in right_p if len(x) > 0]
-    left_p = [x for x in left_p if len(x) > 0]
-    is_right = [is_right[i] for i in range(len(is_right)) if i not in bad_idx]
-    right_ps = np.array([x[int(1.4 * freq):int(2.4 * freq)] for x in right_p]).astype(np.float)
-    left_ps = np.array([x[int(1.4 * freq):int(2.4 * freq)] for x in left_p]).astype(np.float)
-    right_ps = np.swapaxes(right_ps, 1, 2)
-    left_ps = np.swapaxes(left_ps, 1, 2)
+    for i in range(num_actions):
+        action_ps[i] = [x for x in action_ps[i] if len(x) > 0]
+        action_ps[i] =  np.array([x[int(0.5 * freq):int(1.5 * freq)] for x in action_ps[i]]).astype(np.float)
+        action_ps[i] = np.swapaxes(action_ps[i], 1, 2)
+    ordered_labels = [ordered_labels[i] for i in range(len(ordered_labels)) if i not in bad_idx]
     # Format for network
     X = np.concatenate([op[:int(len(errps) * 1.0)], errps], axis=0)
     labels = [False for x in range(int(len(errps) * 1.0))] + [True for x in errps]
@@ -149,9 +131,9 @@ def load_data(data_idx, freq=125):
     np.random.shuffle(rnd_ord)
     X = X[rnd_ord]
     y = y[rnd_ord]
-    X2 = np.concatenate([left_ps, right_ps], axis=0)
-    labels = [False for x in left_ps] + [True for x in right_ps]
-    y2 = np.array([int(x) for x in labels])
+    X2 = np.concatenate(action_ps, axis=0)
+    labels2 = [[i for _ in range(len(action_ps[i]))] for i in range(num_actions)]
+    y2 = np.array([i for sublist in labels2 for i in sublist])
     rnd_ord = np.arange(len(X2))
     np.random.shuffle(rnd_ord)
     X2 = X2[rnd_ord]
@@ -160,7 +142,7 @@ def load_data(data_idx, freq=125):
     return X, y, X2, y2
 
 
-def format_datasets(data_idxs=[6, 7, 8], task="erp"):
+def format_datasets(data_idxs=[6, 7, 8], task="erp", channels=8, freq=250):
     datasets = []
     for data_idx in data_idxs:
         X1, y1, X2, y2 = load_data(data_idx)
@@ -175,8 +157,8 @@ def format_datasets(data_idxs=[6, 7, 8], task="erp"):
         y_train = y[:int(0.8 * len(y))].reshape(-1)
         X_test = X[int(0.8 * len(X)):] * 1000
         y_test = y[int(0.8 * len(y)):].reshape(-1)
-        X_train = X_train.reshape(X_train.shape[0], 1, 16, 125) 
-        X_test = X_test.reshape(X_test.shape[0], 1, 16, 125)
+        X_train = X_train.reshape(X_train.shape[0], 1, channels, freq) 
+        X_test = X_test.reshape(X_test.shape[0], 1, channels, freq)
         y_train = np_utils.to_categorical(y_train)
         y_test  = np_utils.to_categorical(y_test)
         datasets.append({"x_train": X_train, "y_train": y_train, "x_test": X_test, "y_test": y_test})
