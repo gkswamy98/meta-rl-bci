@@ -70,8 +70,8 @@ def EEGNet(nb_classes = 2, Chans = 8, Samples = 250,
     outputs = x
     
     model = Model(inputs=inputs, outputs=outputs)
-    # if freeze_features:
-    #     for i in range(len(model.layers) - 3):
-    #         model.layers[i].trainable = False
+    if freeze_features:
+        for i in range(len(model.layers) - 3):
+            model.layers[i].trainable = False
 
     return model

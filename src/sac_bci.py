@@ -18,8 +18,8 @@ class SACBCI(SACDiscrete):
             target_update_interval=None,
             **kwargs):
         kwargs["name"] = "SAC_discrete"
-        self.actor_fn = lambda: EEGNet(nb_classes=action_dim, D = 1, F1 = 16, F2 = 16, freeze_features=True)
-        self.critic_fn = lambda: EEGNet(nb_classes=action_dim, softmax=False, D = 1, F1 = 16, F2 = 16, freeze_features=True)
+        self.actor_fn = lambda: EEGNet(nb_classes=action_dim, D = 1, F1 = 16, F2 = 16)
+        self.critic_fn = lambda: EEGNet(nb_classes=action_dim, softmax=False, D = 1, F1 = 16, F2 = 16)
         self.target_hard_update = target_update_interval is not None
         self.target_update_interval = target_update_interval
         self.n_training = tf.Variable(0, dtype=tf.int32)

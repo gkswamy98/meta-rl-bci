@@ -76,9 +76,6 @@ class BCIEnv(gym.Env):
             is_error = np.argmax(self.reward_dec.predict(rew_dec_input), axis=-1)
             self.true_errors.append(true_error)
             self.pred_errors.append(np.sum(is_error))
-            # reward = 1 - int(true_error)
-            # if np.random.rand() > 0.65: # works at 75, doesn't at 70% (works at 75 for simple task)
-            #     reward = 1 - reward # flip reward
             reward = np.abs(1 - is_error) / self.ep_len
             obs = data[1][:, :, int(0.5 * self.freq): int(1.5 * self.freq)]
         if self.t % self.ep_len == 0:

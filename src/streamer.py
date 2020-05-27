@@ -2,6 +2,7 @@ import os
 import contextlib
 
 import numpy as np 
+import scipy.stats as stats
 import brainflow
 from brainflow.board_shim import BoardShim, BrainFlowInputParams, LogLevels, BoardIds
 from brainflow.data_filter import DataFilter, FilterTypes, AggOperations
@@ -19,12 +20,12 @@ class Streamer:
         ch_types = ['eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg', 'eeg']
         ch_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
         self.info = mne.create_info (ch_names = ch_names, sfreq = sfreq, ch_types = ch_types)
-        # Calculated via https://en.wikipedia.org/wiki/Event-related_potential + np.polyfit
-        coeff = [-573.6215538847116, 426.2593984962403, -63.72431077694233, 1.5833566358199266e-15]
-        poly = np.poly1d(coeff)
+        # From https://en.wikipedia.org/wiki/Event-related_potential
+        peaks = [(0.1, 0.05, -3), (0.08, 0.05, 2), (0.4, 0.3, 6)]
         xp = np.linspace(0, 0.5, int(self.freq / 2))
-        self.erp = poly(xp) / 1000000.
-        self.SSVEP_SNR = 0.25 # Much lower than actual SNR
+        self.erp = np.sum([(p[2] * (p[1] / 6) * np.sqrt(2 * np.pi)) * stats.norm.pdf(xp, p[0], p[1] / 6) for p in peaks], axis=0)
+        self.ERP_SNR = 2.
+        self.SSVEP_SNR = 1. / 8. # much lower than actual
         if board is not None:
             self.board = board
         else:
@@ -44,13 +45,15 @@ class Streamer:
             sample = raw.get_data()[:, -num_samples:]
             if freq_to_add is not None:
                 signal = np.sin((2 * np.pi * freq_to_add * np.arange(num_samples) + (2 * np.pi * np.random.rand())) / self.freq)
-                signal = signal * self.SSVEP_SNR * (300. / 1000000.)
+                signal = signal * self.SSVEP_SNR * (1000. / 1000000.)
                 signal[:int(self.freq / 2)] =  0 * signal[:int(self.freq / 2)]
                 sample[0] = sample[0] + signal
             if add_error:
                 erp = np.zeros(num_samples)
                 erp[:int(self.freq / 2)] = self.erp
-                sample[-1] = sample[-1] + (1. * erp)
+                erp = erp * self.ERP_SNR * (1. / np.max(np.abs(erp))) * (1000. / 1000000.)
+                for c in range(int(len(sample) / 4), len(sample)):
+                    sample[c] = sample[c] + erp
             samples.append(np.expand_dims(sample, 0))
         if time:
             return samples, data[self.ts_channels, -num_samples:]
